@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IRCS – Intelligent Room Control System</title>
+  <style>
+    /* ── Reset & base ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2e3347;
+      --accent:    #4f8ef7;
+      --green:     #30d974;
+      --yellow:    #f5c542;
+      --red:       #f25f5c;
+      --text:      #dde1f0;
+      --muted:     #7c849e;
+      --radius:    10px;
+      --gap:       1.25rem;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 15px;
+      min-height: 100vh;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 { font-size: 1.3rem; letter-spacing: .03em; }
+    header .badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: .7rem;
+      padding: .2rem .55rem;
+      border-radius: 999px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    #last-updated {
+      margin-left: auto;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem var(--gap);
+      display: grid;
+      gap: var(--gap);
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+
+    /* ── Cards ─────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+    }
+    .card-label {
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: .5rem;
+    }
+    .card-value {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .card-unit {
+      font-size: .9rem;
+      color: var(--muted);
+      margin-left: .2rem;
+    }
+    .card-sub {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-top: .35rem;
+    }
+
+    /* ── Status badge ───────────────────────────────────────────────────── */
+    #room-state-card { grid-column: span 2; }
+    #room-state-card .card-value { font-size: 1.5rem; }
+    .state-pill {
+      display: inline-block;
+      padding: .3rem 1rem;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      text-transform: uppercase;
+    }
+    .state-empty        { background: #2b2f40; color: var(--muted); }
+    .state-occupied     { background: #1e3a5f; color: var(--accent); }
+    .state-high_activity{ background: #3a1e1e; color: var(--red); }
+
+    /* ── Explanation card ───────────────────────────────────────────────── */
+    #explanation-card {
+      grid-column: 1 / -1;
+    }
+    #explanation-text {
+      margin-top: .5rem;
+      line-height: 1.6;
+      color: var(--text);
+      font-style: italic;
+    }
+
+    /* ── Actuator status ────────────────────────────────────────────────── */
+    .actuator-row {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      margin-bottom: .5rem;
+    }
+    .actuator-row:last-child { margin-bottom: 0; }
+    .indicator {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .indicator.on  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .indicator.off { background: var(--muted); }
+
+    /* ── History table ──────────────────────────────────────────────────── */
+    #history-card {
+      grid-column: 1 / -1;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: .75rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .82rem;
+    }
+    th {
+      text-align: left;
+      padding: .5rem .75rem;
+      background: var(--bg);
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: .7rem;
+      letter-spacing: .05em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: .5rem .75rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.03); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>IRCS &nbsp;&#8212;&nbsp; Intelligent Room Control System</h1>
+  <span class="badge">Live</span>
+  <span id="last-updated">–</span>
+</header>
+
+<main>
+
+  <!-- Room state ─────────────────────────────────────────────────────────── -->
+  <div class="card" id="room-state-card">
+    <div class="card-label">Room State</div>
+    <div class="card-value">
+      <span class="state-pill state-empty" id="state-pill">–</span>
+    </div>
+  </div>
+
+  <!-- Environmental sensors ─────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label">Temperature</div>
+    <div class="card-value" id="val-temperature">–<span class="card-unit">°C</span></div>
+    <div class="card-sub">BMP280 / DHT22</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Humidity</div>
+    <div class="card-value" id="val-humidity">–<span class="card-unit">% RH</span></div>
+    <div class="card-sub">DHT22</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Pressure</div>
+    <div class="card-value" id="val-pressure">–<span class="card-unit">hPa</span></div>
+    <div class="card-sub">BMP280</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Air Quality</div>
+    <div class="card-value" id="val-air_quality">–<span class="card-unit">ppm</span></div>
+    <div class="card-sub">MQ-135</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Light Level</div>
+    <div class="card-value" id="val-ldr">–<span class="card-unit">ADC</span></div>
+    <div class="card-sub">LDR</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Distance</div>
+    <div class="card-value" id="val-distance">–<span class="card-unit">cm</span></div>
+    <div class="card-sub">HC-SR04</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Camera Occupancy</div>
+    <div class="card-value" id="val-occupancy" style="font-size:1.4rem">–</div>
+    <div class="card-sub">OpenCV MOG2</div>
+  </div>
+
+  <!-- Actuator status ────────────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-label">Actuators</div>
+    <div style="margin-top:.6rem">
+      <div class="actuator-row">
+        <span class="indicator" id="ind-fan"></span>
+        <span>Fan &mdash; <span id="val-fan">0</span>%</span>
+      </div>
+      <div class="actuator-row">
+        <span class="indicator" id="ind-light"></span>
+        <span>Light</span>
+      </div>
+      <div class="actuator-row">
+        <span class="indicator" id="ind-hvac"></span>
+        <span>HVAC</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- LLM explanation ────────────────────────────────────────────────────── -->
+  <div class="card" id="explanation-card">
+    <div class="card-label">AI Explanation</div>
+    <div id="explanation-text">Waiting for data…</div>
+  </div>
+
+  <!-- History table ──────────────────────────────────────────────────────── -->
+  <div class="card" id="history-card">
+    <div class="card-label">Recent Readings</div>
+    <div class="table-wrap">
+      <table id="history-table">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Temp (°C)</th>
+            <th>Hum (%)</th>
+            <th>Pressure</th>
+            <th>AQ (ppm)</th>
+            <th>LDR</th>
+            <th>Dist (cm)</th>
+            <th>Occ.</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const fmt = (v, d=1) => (v == null || v === "") ? "–" : Number(v).toFixed(d);
+
+  async function fetchStatus() {
+    try {
+      const res  = await fetch("/api/status");
+      const data = await res.json();
+      const r    = data.reading  || {};
+      const act  = data.actuators || {};
+
+      // Sensor cards
+      document.getElementById("val-temperature").innerHTML =
+        fmt(r.temperature) + '<span class="card-unit">°C</span>';
+      document.getElementById("val-humidity").innerHTML =
+        fmt(r.humidity)    + '<span class="card-unit">% RH</span>';
+      document.getElementById("val-pressure").innerHTML =
+        fmt(r.pressure, 1) + '<span class="card-unit">hPa</span>';
+      document.getElementById("val-air_quality").innerHTML =
+        fmt(r.air_quality, 0) + '<span class="card-unit">ppm</span>';
+      document.getElementById("val-ldr").innerHTML =
+        fmt(r.ldr, 0)      + '<span class="card-unit">ADC</span>';
+      document.getElementById("val-distance").innerHTML =
+        fmt(r.distance)    + '<span class="card-unit">cm</span>';
+      document.getElementById("val-occupancy").textContent =
+        r.occupancy ? "Detected" : "None";
+
+      // Room state pill
+      const state    = data.label || "unknown";
+      const pill     = document.getElementById("state-pill");
+      pill.textContent = state.replace("_", " ").toUpperCase();
+      pill.className = "state-pill state-" + state;
+
+      // Actuators (data may come from /api/status if main loop injects them)
+      const fanDuty  = act.fan_duty  ?? 0;
+      const lightOn  = act.light_on  ?? false;
+      const hvacOn   = act.hvac_on   ?? false;
+      document.getElementById("val-fan").textContent = Math.round(fanDuty);
+      setIndicator("ind-fan",   fanDuty > 0);
+      setIndicator("ind-light", lightOn);
+      setIndicator("ind-hvac",  hvacOn);
+
+      // Explanation
+      document.getElementById("explanation-text").textContent =
+        data.explanation || "No explanation available.";
+
+      // Timestamp
+      document.getElementById("last-updated").textContent =
+        "Updated: " + new Date().toLocaleTimeString();
+
+    } catch (e) {
+      console.error("Status fetch failed:", e);
+    }
+  }
+
+  async function fetchHistory() {
+    try {
+      const res  = await fetch("/api/history?n=20");
+      const rows = await res.json();
+      const tbody = document.getElementById("history-body");
+      tbody.innerHTML = "";
+      rows.forEach(row => {
+        const ts = row.timestamp ? row.timestamp.replace("T", " ").slice(0, 19) : "–";
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${ts}</td>
+          <td>${fmt(row.temperature)}</td>
+          <td>${fmt(row.humidity)}</td>
+          <td>${fmt(row.pressure, 1)}</td>
+          <td>${fmt(row.air_quality, 0)}</td>
+          <td>${fmt(row.ldr, 0)}</td>
+          <td>${fmt(row.distance)}</td>
+          <td>${row.occupancy ? "Yes" : "No"}</td>
+          <td>${row.label || "–"}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      console.error("History fetch failed:", e);
+    }
+  }
+
+  function setIndicator(id, on) {
+    const el = document.getElementById(id);
+    el.classList.toggle("on",  on);
+    el.classList.toggle("off", !on);
+  }
+
+  // Poll every 5 seconds
+  fetchStatus();
+  fetchHistory();
+  setInterval(fetchStatus,  5000);
+  setInterval(fetchHistory, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# IRCS – Intelligent Room Control System
+# Python dependencies
+
+# ── Hardware / GPIO ────────────────────────────────────────────────────────────
+RPi.GPIO>=0.7.1
+adafruit-circuitpython-dht>=3.7.8      # DHT11 / DHT22
+adafruit-circuitpython-bmp280>=3.2.19
+adafruit-circuitpython-ads1x15>=2.2.23
+picamera2>=0.3.12          # Raspberry Pi camera (libcamera back-end)
+opencv-python-headless>=4.9.0.80
+
+# ── Machine learning ──────────────────────────────────────────────────────────
+numpy>=1.26.4
+pandas>=2.2.2
+scikit-learn>=1.4.2
+joblib>=1.4.2
+
+# ── LLM integration ───────────────────────────────────────────────────────────
+openai>=1.30.1
+
+# ── Dashboard / web ───────────────────────────────────────────────────────────
+flask>=3.0.3
+flask-socketio>=5.3.6
+
+# ── Database ──────────────────────────────────────────────────────────────────
+# sqlite3 ships with Python – no extra package required
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.1
+requests>=2.32.3
