@@ -1,15 +1,26 @@
 """
-Actuator controller – drives the servo (ventilation), LED (lighting) and
-buzzer (alert) GPIO outputs based on current sensor readings and the
-ML-predicted room state.
+Actuator controller for the IRCS – drives the servo (ventilation damper),
+LED (illumination) and buzzer (caregiver alert).
+
+Key behaviours
+--------------
+* Context-driven targets: each of the four ML context states maps to an
+  evidence-based set of environmental targets (temperature, humidity, lux).
+* Gradual ramps: when the context state changes, actuator commands move
+  toward the new target incrementally over ACTUATOR_RAMP_SECONDS (15 min)
+  to avoid abrupt environmental changes that could disturb sleep.
+* Safety override layer (always active): hard limits on temperature, CO2,
+  and temperature rate-of-change immediately override ML-driven commands and
+  activate the buzzer to alert caregivers.
 
 Hardware mapping (BCM):
-  GPIO 18 → MG90S servo signal (50 Hz PWM)   – ventilation / damper
-  GPIO 21 → LED anode via 330Ω resistor       – room illumination
-  GPIO 23 → NPN base via 1 kΩ → buzzer        – audible alert
+  GPIO 18 → MG90S servo signal (50 Hz PWM)  – ventilation damper
+  GPIO 21 → LED anode via 330Ω              – room illumination
+  GPIO 23 → NPN base via 1 kΩ → buzzer      – audible caregiver alert
 """
 
 import logging
+import time
 
 try:
     import RPi.GPIO as GPIO
@@ -18,36 +29,31 @@ except ImportError:
     _GPIO_AVAILABLE = False
 
 from config import (
-    SERVO_PIN,
-    LED_PIN,
-    BUZZER_PIN,
-    SERVO_PWM_FREQ,
-    SERVO_DUTY_STOP,
-    SERVO_DUTY_SLOW,
-    SERVO_DUTY_FULL,
-    TEMP_HIGH_THRESHOLD,
-    TEMP_LOW_THRESHOLD,
-    HUMIDITY_HIGH,
-    CO2_HIGH_THRESHOLD,
-    LDR_DARK_THRESHOLD,
-    DISTANCE_OCCUPIED_CM,
+    SERVO_PIN, LED_PIN, BUZZER_PIN,
+    SERVO_PWM_FREQ, SERVO_DUTY_STOP, SERVO_DUTY_SLOW, SERVO_DUTY_FULL,
+    COMFORT_TARGETS,
+    SAFETY_TEMP_MIN_ELDERLY, SAFETY_TEMP_MAX,
+    SAFETY_CO2_MAX_PPM, SAFETY_TEMP_DROP_RATE,
+    ACTUATOR_RAMP_SECONDS, SENSOR_POLL_INTERVAL,
 )
 
 logger = logging.getLogger(__name__)
 
+# How much the servo duty changes per sensor cycle during a ramp
+_RAMP_STEP = (SERVO_DUTY_FULL - SERVO_DUTY_STOP) / (
+    ACTUATOR_RAMP_SECONDS / max(SENSOR_POLL_INTERVAL, 1)
+)
+
 
 class ActuatorController:
-    """
-    Controls three actuators:
-      - Servo  (GPIO 18 / 50 Hz PWM) – ventilation damper (MG90S)
-      - LED    (GPIO 21 digital out)  – room illumination
-      - Buzzer (GPIO 23 digital out)  – audible alert via NPN transistor
-    """
-
     def __init__(self) -> None:
-        self._servo_duty  = SERVO_DUTY_STOP
-        self._led_on      = False
-        self._buzzer_on   = False
+        self._servo_duty   = SERVO_DUTY_STOP
+        self._target_duty  = SERVO_DUTY_STOP
+        self._led_on       = False
+        self._buzzer_on    = False
+        self._last_temp    = None
+        self._last_temp_ts = None
+        self._safety_active = False
 
         if _GPIO_AVAILABLE:
             GPIO.setmode(GPIO.BCM)
@@ -55,100 +61,147 @@ class ActuatorController:
             for pin in (LED_PIN, BUZZER_PIN):
                 GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
             GPIO.setup(SERVO_PIN, GPIO.OUT)
-
             self._servo_pwm = GPIO.PWM(SERVO_PIN, SERVO_PWM_FREQ)
             self._servo_pwm.start(SERVO_DUTY_STOP)
         else:
             logger.warning("RPi.GPIO not available – ActuatorController in simulation mode.")
             self._servo_pwm = None
 
-    # ── Individual actuator controls ──────────────────────────────────────────
+    # ── Low-level drivers ─────────────────────────────────────────────────────
 
-    def set_fan(self, duty_cycle: float) -> None:
-        """Set fan speed (0-100 %). Clamps to valid range."""
-        duty_cycle = max(0.0, min(100.0, float(duty_cycle)))
-        self._fan_duty = duty_cycle
-        if _GPIO_AVAILABLE and self._fan_pwm:
-            self._fan_pwm.ChangeDutyCycle(duty_cycle)
-        logger.debug("Fan duty cycle → %.0f%%", duty_cycle)
+    def _write_servo(self, duty: float) -> None:
+        duty = max(SERVO_DUTY_STOP, min(SERVO_DUTY_FULL, duty))
+        self._servo_duty = duty
+        if _GPIO_AVAILABLE and self._servo_pwm:
+            self._servo_pwm.ChangeDutyCycle(duty)
 
-    def set_light(self, state: bool) -> None:
-        """Turn room light on (True) or off (False)."""
-        self._light_on = state
+    def set_led(self, state: bool) -> None:
+        self._led_on = state
         if _GPIO_AVAILABLE:
-            GPIO.output(LIGHT_PIN, GPIO.HIGH if state else GPIO.LOW)
-        logger.debug("Light → %s", "ON" if state else "OFF")
+            GPIO.output(LED_PIN, GPIO.HIGH if state else GPIO.LOW)
 
-    def set_hvac(self, state: bool) -> None:
-        """Activate (True) or deactivate (False) the HVAC relay."""
-        self._hvac_on = state
+    def set_buzzer(self, state: bool) -> None:
+        if state == self._buzzer_on:
+            return
+        self._buzzer_on = state
         if _GPIO_AVAILABLE:
-            GPIO.output(HVAC_PIN, GPIO.HIGH if state else GPIO.LOW)
-        logger.debug("HVAC → %s", "ON" if state else "OFF")
+            GPIO.output(BUZZER_PIN, GPIO.HIGH if state else GPIO.LOW)
+        if state:
+            logger.warning("BUZZER ACTIVATED – safety alert triggered.")
 
-    # ── Policy application ────────────────────────────────────────────────────
+    # ── Safety override ───────────────────────────────────────────────────────
 
-    def apply(self, reading: dict, room_state: str) -> None:
+    def _check_safety(self, reading: dict) -> bool:
         """
-        Decide actuator states from sensor readings and classified room state.
+        Evaluate hard-limit conditions.  Returns True if a safety override
+        is active (caller must skip normal policy and maximise ventilation).
+        """
+        temp    = reading.get("temperature", 22.0)
+        co2     = reading.get("co2_ppm",     400)
+        now     = time.monotonic()
+        alert   = False
+
+        # Temperature floor
+        if temp < SAFETY_TEMP_MIN_ELDERLY:
+            logger.warning("SAFETY: temp %.1f°C below floor %.1f°C", temp, SAFETY_TEMP_MIN_ELDERLY)
+            alert = True
+
+        # Temperature ceiling
+        if temp > SAFETY_TEMP_MAX:
+            logger.warning("SAFETY: temp %.1f°C above ceiling %.1f°C", temp, SAFETY_TEMP_MAX)
+            alert = True
+
+        # CO2 ceiling
+        if co2 > SAFETY_CO2_MAX_PPM:
+            logger.warning("SAFETY: CO2 %d ppm exceeds %d ppm limit", co2, SAFETY_CO2_MAX_PPM)
+            alert = True
+
+        # Rapid temperature drop
+        if self._last_temp is not None and self._last_temp_ts is not None:
+            dt_min = (now - self._last_temp_ts) / 60
+            if dt_min > 0:
+                drop_rate = (self._last_temp - temp) / dt_min
+                if drop_rate > SAFETY_TEMP_DROP_RATE:
+                    logger.warning("SAFETY: temp dropping at %.2f°C/min", drop_rate)
+                    alert = True
+
+        self._last_temp    = temp
+        self._last_temp_ts = now
+        self._safety_active = alert
+        return alert
+
+    # ── Context-driven policy ─────────────────────────────────────────────────
+
+    def apply(self, reading: dict, context_state: str) -> None:
+        """
+        Compute and apply actuator commands.
 
         Parameters
         ----------
-        reading    : dict with keys temperature, humidity, air_quality, ldr, occupancy
-        room_state : str  – one of 'empty', 'occupied', 'high_activity'
+        reading       : dict of sensor values (temperature, co2_ppm, lux, …)
+        context_state : str – one of ROOM_EMPTY, ACTIVE_AWAKE, RESTING, SLEEPING
         """
-        temp        = reading.get("temperature", 22.0)
-        humidity    = reading.get("humidity",    50.0)
-        air_quality = reading.get("air_quality", 400)
-        ldr         = reading.get("ldr",         50000)  # lux value
-        occupied    = reading.get("occupancy",   False)
+        safety_override = self._check_safety(reading)
 
-        # ── Servo / ventilation policy ────────────────────────────────────────
-        if room_state == "empty":
-            servo_duty = SERVO_DUTY_STOP
-        elif room_state == "high_activity":
-            servo_duty = SERVO_DUTY_FULL
-        elif temp > TEMP_HIGH_THRESHOLD or humidity > HUMIDITY_HIGH or air_quality > CO2_HIGH_THRESHOLD:
-            servo_duty = SERVO_DUTY_SLOW
+        if safety_override:
+            # Maximum ventilation + buzzer alert; ignore ML targets
+            self._target_duty = SERVO_DUTY_FULL
+            self.set_buzzer(True)
         else:
-            servo_duty = SERVO_DUTY_STOP
+            self.set_buzzer(False)
+            targets = COMFORT_TARGETS.get(context_state, COMFORT_TARGETS["ACTIVE_AWAKE"])
 
-        self.set_servo(servo_duty)
+            temp    = reading.get("temperature", 22.0)
+            co2     = reading.get("co2_ppm",     400)
+            lux     = reading.get("lux",         500.0)
 
-        # ── LED lighting policy ───────────────────────────────────────────────
-        led_needed = occupied and (ldr < LDR_DARK_THRESHOLD)
-        self.set_led(led_needed)
+            # Servo target based on thermal + air-quality delta
+            if context_state == "ROOM_EMPTY":
+                self._target_duty = SERVO_DUTY_STOP
+            elif temp > targets["temp"] + 1.5 or co2 > targets["co2_max"]:
+                self._target_duty = SERVO_DUTY_FULL
+            elif temp > targets["temp"] + 0.5:
+                self._target_duty = SERVO_DUTY_SLOW
+            else:
+                self._target_duty = SERVO_DUTY_STOP
 
-        # ── Buzzer alert policy ───────────────────────────────────────────────
-        # Alert on hazardous air quality or temperature extremes
-        alert = occupied and (
-            air_quality > CO2_HIGH_THRESHOLD
-            or temp > TEMP_HIGH_THRESHOLD
-            or temp < TEMP_LOW_THRESHOLD
-        )
-        self.set_buzzer(alert)
+            # LED: on when lux is below the target for this context
+            led_needed = (context_state != "ROOM_EMPTY") and (lux < targets["lux"] * 0.8)
+            self.set_led(led_needed)
+
+        # ── Gradual servo ramp ────────────────────────────────────────────────
+        if self._servo_duty < self._target_duty:
+            self._write_servo(min(self._servo_duty + _RAMP_STEP, self._target_duty))
+        elif self._servo_duty > self._target_duty:
+            self._write_servo(max(self._servo_duty - _RAMP_STEP, self._target_duty))
 
         logger.info(
-            "Actuators applied – state=%s | servo=%.1f%% | led=%s | buzzer=%s",
-            room_state, servo_duty,
-            "ON" if led_needed else "OFF",
-            "ON" if alert else "OFF",
+            "Actuators – state=%s | servo=%.1f%%→%.1f%% | led=%s | buzzer=%s | safety=%s",
+            context_state, self._servo_duty, self._target_duty,
+            "ON" if self._led_on else "OFF",
+            "ON" if self._buzzer_on else "OFF",
+            "ACTIVE" if safety_override else "OK",
         )
+
+    # ── Introspection ─────────────────────────────────────────────────────────
 
     @property
     def status(self) -> dict:
         return {
-            "servo_duty":  self._servo_duty,
-            "led_on":      self._led_on,
-            "buzzer_on":   self._buzzer_on,
+            "servo_duty":    self._servo_duty,
+            "target_duty":   self._target_duty,
+            "led_on":        self._led_on,
+            "buzzer_on":     self._buzzer_on,
+            "safety_active": self._safety_active,
         }
 
     def cleanup(self) -> None:
+        self.set_led(False)
+        self.set_buzzer(False)
         if _GPIO_AVAILABLE:
             if self._servo_pwm:
                 self._servo_pwm.stop()
             GPIO.cleanup([SERVO_PIN, LED_PIN, BUZZER_PIN])
-        if _GPIO_AVAILABLE:
-            if self._servo_pwm:
-                self._servo_pwm.stop()
-            GPIO.cleanup([SERVO_PIN, LED_PIN, BUZZER_PIN])
+
+
+import logging

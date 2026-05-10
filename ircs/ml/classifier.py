@@ -1,6 +1,16 @@
 """
-Room-state classifier – wraps a persisted scikit-learn model and exposes
-a predict() method used by the main control loop.
+Room-state classifier – wraps a persisted scikit-learn Random Forest and
+exposes a predict() method used by the main control loop.
+
+Four context states:
+  0 ROOM_EMPTY   – no occupant detected
+  1 ACTIVE_AWAKE – occupant is moving / awake
+  2 RESTING      – occupant is still but awake (sitting/reclined)
+  3 SLEEPING     – occupant is horizontal and still
+
+Confidence gate: if predict_proba() < SAFETY_CONFIDENCE_FLOOR the classifier
+falls back to a CV-based heuristic (posture + flow_score from the feature
+vector) rather than acting on an uncertain ML prediction.
 """
 
 import os
@@ -14,17 +24,43 @@ try:
 except ImportError:
     _JOBLIB_AVAILABLE = False
 
-from config import MODEL_PATH, LABEL_MAP
+from config import MODEL_PATH, LABEL_MAP, SAFETY_CONFIDENCE_FLOOR
 
 logger = logging.getLogger(__name__)
+
+# Posture encoding indices within the 14-feature vector (see feature_extractor.py)
+_IDX_DISTANCE   = 5
+_IDX_POSTURE    = 6
+_IDX_FLOW_SCORE = 7
+
+
+def _cv_fallback(features: np.ndarray) -> int:
+    """
+    Rule-based heuristic using posture and optical flow when ML confidence
+    is insufficient.  Uses raw (unscaled) feature indices — called before
+    the scaler is applied, so values may be scaled; only relative magnitudes
+    and sign are used.
+    """
+    distance   = float(features[0, _IDX_DISTANCE])
+    posture    = int(round(float(features[0, _IDX_POSTURE])))
+    flow_score = float(features[0, _IDX_FLOW_SCORE])
+
+    if distance > 400:              # no one in range
+        return 0  # ROOM_EMPTY
+    if flow_score > 0.25:
+        return 1  # ACTIVE_AWAKE – significant motion
+    if posture == 2:                # HORIZONTAL
+        return 3  # SLEEPING
+    if posture == 1:                # RECLINED
+        return 2  # RESTING
+    return 1  # default ACTIVE_AWAKE when upright and still
 
 
 class RoomClassifier:
     """
-    Loads a pre-trained sklearn estimator from disk.
-
-    Falls back to a rule-based heuristic when no model file is found,
-    so the system can operate before training has been performed.
+    Loads a pre-trained sklearn Random Forest estimator from disk.
+    Falls back to `_cv_fallback()` when confidence is below threshold
+    or when no model file exists.
     """
 
     def __init__(self) -> None:
@@ -34,35 +70,37 @@ class RoomClassifier:
             logger.info("Classifier model loaded from %s", MODEL_PATH)
         else:
             logger.warning(
-                "No model found at %s – using rule-based fallback.", MODEL_PATH
+                "No model found at %s – using CV-based fallback.", MODEL_PATH
             )
 
-    def predict(self, features: np.ndarray) -> int:
+    def predict(self, features: np.ndarray) -> tuple[int, float]:
         """
         Parameters
         ----------
-        features : np.ndarray of shape (1, n_features)
+        features : np.ndarray of shape (1, 14)
 
         Returns
         -------
-        int – class index (see config.LABEL_MAP)
+        (class_id: int, confidence: float)
         """
-        if self._model is not None:
-            return int(self._model.predict(features)[0])
-        # Rule-based fallback: occupancy flag (index 6) drives the decision
-        occupancy = int(features[0, 6])
-        return 1 if occupancy else 0
+        if self._model is None:
+            return _cv_fallback(features), 0.0
 
-    def predict_proba(self, features: np.ndarray) -> np.ndarray:
-        """Return class probabilities if the model supports it."""
-        if self._model is not None and hasattr(self._model, "predict_proba"):
-            return self._model.predict_proba(features)[0]
-        # Return a dummy probability vector
-        n_classes = len(LABEL_MAP)
-        proba = np.zeros(n_classes)
-        proba[self.predict(features)] = 1.0
-        return proba
+        proba      = self._model.predict_proba(features)[0]
+        class_id   = int(np.argmax(proba))
+        confidence = float(proba[class_id])
+
+        if confidence < SAFETY_CONFIDENCE_FLOOR:
+            fallback_id = _cv_fallback(features)
+            logger.debug(
+                "Low confidence (%.2f < %.2f) – CV fallback: %s → %s",
+                confidence, SAFETY_CONFIDENCE_FLOOR,
+                LABEL_MAP.get(class_id), LABEL_MAP.get(fallback_id),
+            )
+            return fallback_id, confidence
+
+        return class_id, confidence
 
     def label_name(self, class_id: int) -> str:
-        """Map class index to human-readable label."""
-        return LABEL_MAP.get(class_id, "unknown")
+        return LABEL_MAP.get(class_id, "UNKNOWN")
+

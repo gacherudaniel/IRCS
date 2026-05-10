@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment / secrets  ← KEY RULE: never commit real keys
+.env
+*.env
+
+# ML artefacts (large binary files)
+ircs/models/*.joblib
+ircs/models/*.pkl
+
+# Database
+ircs/data/*.db
+ircs/data/*.db-wal
+ircs/data/*.db-shm
+
+# Logs
+*.log
+ircs/logs/
+
+# OS
+.DS_Store
+Thumbs.db

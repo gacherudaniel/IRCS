@@ -1,6 +1,6 @@
 """
-IRCS – Intelligent Room Control System
-Global configuration settings.
+IRCS – Intelligent Room Conditioning System
+Context-Aware Environmental Control for Elderly and Infant Care.
 
 Physical wiring reference (BCM numbering):
   GPIO 2  (SDA1) Pin 3  → ADS1115 SDA, BMP280 SDA, OLED SDA  [I2C Data]
@@ -43,38 +43,68 @@ SERVO_PIN  = 18                # MG90S servo signal (hardware PWM)
 LED_PIN    = 21                # LED anode via 330Ω resistor
 BUZZER_PIN = 23                # NPN transistor base via 1kΩ → buzzer
 
-# Servo PWM: 50 Hz carrier, duty 2-12 % → 0°-180°
-SERVO_PWM_FREQ      = 50
-SERVO_DUTY_STOP     = 0.0      # servo off / idle
-SERVO_DUTY_SLOW     = 5.0      # ~90° (moderate ventilation)
-SERVO_DUTY_FULL     = 12.0     # ~180° (full ventilation)
+# Servo PWM: 50 Hz carrier; duty cycle maps to ventilation damper position
+SERVO_PWM_FREQ  = 50
+SERVO_DUTY_STOP = 0.0          # idle / off
+SERVO_DUTY_SLOW = 5.0          # ~90° – moderate ventilation
+SERVO_DUTY_FULL = 12.0         # ~180° – full ventilation
 
+# ── Sampling & timing ────────────────────────────────────────────────────────
+SENSOR_POLL_INTERVAL   = 10    # seconds between sensor cycles
+ROLLING_WINDOW_SECONDS = 30    # seconds of history for derived features
+LLM_CALL_INTERVAL      = 300   # seconds between scheduled LLM calls (5 min)
+ACTUATOR_RAMP_SECONDS  = 900   # 15-minute gradual transition between states
 
-# ── Sampling intervals ────────────────────────────────────────────────────────
-SENSOR_POLL_INTERVAL = 5        # seconds between sensor readings
-CAMERA_POLL_INTERVAL = 1        # seconds between camera frames
+# ── Presence detection ────────────────────────────────────────────────────────
+PRESENCE_DISTANCE_CM   = 400   # HC-SR04 returns > this → ROOM_EMPTY standby
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
-TEMP_HIGH_THRESHOLD   = 28.0    # °C – trigger servo ventilation
-TEMP_LOW_THRESHOLD    = 18.0    # °C – trigger buzzer alert
-HUMIDITY_HIGH         = 70.0    # % RH – trigger ventilation
-CO2_HIGH_THRESHOLD    = 1000    # ppm equivalent; trigger buzzer alert
-LDR_DARK_THRESHOLD    = 10000   # lux; below = dark → turn on LED
-DISTANCE_OCCUPIED_CM  = 200     # cm; below = room occupied
+# ── Context-state labels ──────────────────────────────────────────────────────
+LABEL_MAP = {
+    0: "ROOM_EMPTY",
+    1: "ACTIVE_AWAKE",
+    2: "RESTING",
+    3: "SLEEPING",
+}
+
+# ── Evidence-based environmental targets per context state ────────────────────
+# Format: {state: {"temp": °C, "humidity": %RH, "co2_max": ppm, "lux": lux}}
+# Targets are for elderly occupants by default; infant targets are tighter.
+COMFORT_TARGETS = {
+    "ROOM_EMPTY":   {"temp": 18.0, "humidity": 50.0, "co2_max": 1000, "lux": 0},
+    "ACTIVE_AWAKE": {"temp": 21.0, "humidity": 50.0, "co2_max": 900,  "lux": 300},
+    "RESTING":      {"temp": 20.0, "humidity": 55.0, "co2_max": 800,  "lux": 80},
+    "SLEEPING":     {"temp": 18.5, "humidity": 60.0, "co2_max": 700,  "lux": 5},
+}
+
+# ── Safety hard-limit overrides (always active, regardless of ML output) ──────
+SAFETY_TEMP_MIN_ELDERLY  = 18.0   # °C – immediate corrective heat if below
+SAFETY_TEMP_MIN_INFANT   = 20.0   # °C – tighter floor for infant mode
+SAFETY_TEMP_MAX          = 30.0   # °C – immediate ventilation if above
+SAFETY_CO2_MAX_PPM       = 1500   # ppm – immediate ventilation + alert
+SAFETY_TEMP_DROP_RATE    = 2.0    # °C/min – rapid drop triggers override
+SAFETY_CONFIDENCE_FLOOR  = 0.70   # predict_proba below this → fallback to CV
+
+# ── Machine-learning ─────────────────────────────────────────────────────────
+MODEL_PATH  = os.path.join(os.path.dirname(__file__), "ml", "model.pkl")
+SCALER_PATH = os.path.join(os.path.dirname(__file__), "ml", "scaler.pkl")
+
+# ── LLM settings ────────────────────────────────────────────────────────────
+# Provider priority: Groq (free) → Anthropic (paid) → Pollinations (no-key)
+# Set ONE of the API keys below; leave the others blank.
+#
+# Groq  – free, fast.  Sign up at https://console.groq.com  (no credit card)
+GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL        = "llama-3.3-70b-versatile"  # best free Groq model
+#
+# Anthropic – $5 free credit on signup at https://console.anthropic.com
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+LLM_MODEL         = "claude-3-5-haiku-20241022"
+#
+LLM_MAX_TOKENS    = 300
+LLM_CALL_INTERVAL = 300   # seconds between LLM calls (5 min)
 
 # ── Database ──────────────────────────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "ircs.db")
-
-# ── Machine-learning ─────────────────────────────────────────────────────────
-MODEL_PATH      = os.path.join(os.path.dirname(__file__), "ml", "model.pkl")
-SCALER_PATH     = os.path.join(os.path.dirname(__file__), "ml", "scaler.pkl")
-LABEL_MAP       = {0: "empty", 1: "occupied", 2: "high_activity"}
-
-# ── LLM settings ─────────────────────────────────────────────────────────────
-OPENAI_API_KEY  = os.environ.get("OPENAI_API_KEY", "")
-LLM_MODEL       = "gpt-4o-mini"
-LLM_MAX_TOKENS  = 256
-LLM_TEMPERATURE = 0.3
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 DASHBOARD_HOST  = "0.0.0.0"
