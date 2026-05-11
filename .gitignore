@@ -14,7 +14,7 @@ venv/
 env/
 
 # Environment / secrets  ← KEY RULE: never commit real keys
-.env
+.env.example
 *.env
 
 # ML artefacts (large binary files)

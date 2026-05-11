@@ -2,24 +2,31 @@
 LLM-based natural language explainer for IRCS room state.
 
 Provider priority (first available key wins):
-  1. Groq  – fastest, completely free.  console.groq.com  (no credit card)
-  2. Anthropic Claude – $5 free credit.  console.anthropic.com
-  3. Pollinations.ai – zero signup, OpenAI-compatible public endpoint.
-  4. Local templates – always works offline.
+  1. Google Gemini  – free tier, 1 500 req/day.  aistudio.google.com/apikey
+  2. Groq           – free tier.  console.groq.com
+  3. Anthropic      – $5 free credit.  console.anthropic.com
+  4. Pollinations.ai – zero signup, OpenAI-compatible public endpoint.
+  5. Local templates – always works offline.
 
 The explainer is called:
   • every LLM_CALL_INTERVAL seconds (default 5 min)
   • immediately whenever the predicted context state changes
 
-Quick setup (Groq, recommended)
----------------------------------
-  1. Go to https://console.groq.com  → sign up (free, no card)
-  2. API Keys → Create API Key → copy it
-  3. Add to ircs/.env:  GROQ_API_KEY=gsk_...
+Quick setup (Gemini)
+--------------------
+  1. Go to https://aistudio.google.com/apikey  (sign in with Google account)
+  2. Click "Create API key" → copy it
+  3. Add to ircs/.env:  GEMINI_API_KEY=AIza...
 """
 
 import logging
 from datetime import datetime
+
+try:
+    import google.generativeai as _genai
+    _GEMINI_AVAILABLE = True
+except ImportError:
+    _GEMINI_AVAILABLE = False
 
 try:
     from openai import OpenAI as _OpenAI
@@ -34,6 +41,7 @@ except ImportError:
     _ANTHROPIC_AVAILABLE = False
 
 from config import (
+    GEMINI_API_KEY, GEMINI_MODEL,
     GROQ_API_KEY, GROQ_MODEL,
     ANTHROPIC_API_KEY, LLM_MODEL, LLM_MAX_TOKENS,
 )
@@ -101,14 +109,24 @@ _POLLINATIONS_MODEL = "openai"   # routes to gpt-4o-mini equivalent
 class LLMExplainer:
     """
     Tries LLM providers in priority order:
-      Groq (free key) → Anthropic (paid key) → Pollinations (no key) → templates
+      Gemini → Groq → Anthropic → Pollinations → local templates
     """
 
     def __init__(self) -> None:
         self._mode   = "fallback"
         self._client = None
+        self._gemini_model = None
 
-        if _OPENAI_COMPAT and GROQ_API_KEY:
+        if _GEMINI_AVAILABLE and GEMINI_API_KEY:
+            _genai.configure(api_key=GEMINI_API_KEY)
+            self._gemini_model = _genai.GenerativeModel(
+                model_name=GEMINI_MODEL,
+                system_instruction=_SYSTEM_PROMPT,
+            )
+            self._mode = "gemini"
+            logger.info("LLM provider: Google Gemini (%s)", GEMINI_MODEL)
+
+        elif _OPENAI_COMPAT and GROQ_API_KEY:
             self._client = _OpenAI(
                 api_key=GROQ_API_KEY,
                 base_url="https://api.groq.com/openai/v1",
@@ -126,7 +144,7 @@ class LLMExplainer:
         elif _OPENAI_COMPAT:
             # Pollinations.ai – zero signup, completely free
             self._client = _OpenAI(
-                api_key="pollinations",          # any non-empty string works
+                api_key="pollinations",
                 base_url=_POLLINATIONS_BASE,
             )
             self._model = _POLLINATIONS_MODEL
@@ -135,8 +153,8 @@ class LLMExplainer:
 
         else:
             logger.warning(
-                "No LLM provider available – install 'openai' package or set "
-                "GROQ_API_KEY in .env.  Using local fallback templates."
+                "No LLM provider available – install 'google-generativeai' and set "
+                "GEMINI_API_KEY in .env.  Using local fallback templates."
             )
 
     def explain(self, reading: dict, context_state: str, confidence: float = 1.0) -> str:
@@ -158,7 +176,10 @@ class LLMExplainer:
 
         prompt = _build_prompt(reading, context_state, confidence)
         try:
-            if self._mode == "anthropic":
+            if self._mode == "gemini":
+                response = self._gemini_model.generate_content(prompt)
+                return response.text.strip()
+            elif self._mode == "anthropic":
                 response = self._client.messages.create(
                     model=self._model,
                     max_tokens=LLM_MAX_TOKENS,

@@ -89,12 +89,16 @@ MODEL_PATH  = os.path.join(os.path.dirname(__file__), "ml", "model.pkl")
 SCALER_PATH = os.path.join(os.path.dirname(__file__), "ml", "scaler.pkl")
 
 # ── LLM settings ────────────────────────────────────────────────────────────
-# Provider priority: Groq (free) → Anthropic (paid) → Pollinations (no-key)
-# Set ONE of the API keys below; leave the others blank.
+# Provider priority: Gemini (primary) → Groq → Anthropic → Pollinations
+# Set GEMINI_API_KEY; leave others blank unless you want a different provider.
 #
-# Groq  – free, fast.  Sign up at https://console.groq.com  (no credit card)
+# Google Gemini – get a free key at https://aistudio.google.com/apikey
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL   = "gemini-2.0-flash"   # fast, generous free tier
+#
+# Groq  – free, fast.  Sign up at https://console.groq.com
 GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")
-GROQ_MODEL        = "llama-3.3-70b-versatile"  # best free Groq model
+GROQ_MODEL        = "llama-3.3-70b-versatile"
 #
 # Anthropic – $5 free credit on signup at https://console.anthropic.com
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
