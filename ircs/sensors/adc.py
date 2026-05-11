@@ -15,10 +15,13 @@ try:
     import board
     import busio
     import adafruit_ads1x15.ads1115 as ADS
+    from adafruit_ads1x15.ads1x15 import P0, P1, P2, P3
     from adafruit_ads1x15.analog_in import AnalogIn
     _ADS_AVAILABLE = True
+    _CHANNELS = (P0, P1, P2, P3)
 except ImportError:
     _ADS_AVAILABLE = False
+    _CHANNELS = (0, 1, 2, 3)
 
 from config import ADS1115_I2C_ADDRESS, ADS1115_GAIN
 
@@ -27,7 +30,6 @@ logger = logging.getLogger(__name__)
 # ADS1115 full-scale voltage for gain=1 (±4.096 V) → maps to raw ±32767
 _ADS1115_MAX_RAW  = 32767
 _ADS1115_VREF     = 4.096   # V (full-scale for gain=1)
-_CHANNELS         = (ADS.P0, ADS.P1, ADS.P2, ADS.P3)
 
 
 class ADCSensor:

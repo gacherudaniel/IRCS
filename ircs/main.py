@@ -9,7 +9,6 @@ import threading
 
 from config import (
     SENSOR_POLL_INTERVAL,
-    CAMERA_POLL_INTERVAL,
     DASHBOARD_HOST,
     DASHBOARD_PORT,
     DASHBOARD_DEBUG,
@@ -47,6 +46,7 @@ def sensor_loop(
     """Continuously reads sensors, classifies room state and drives actuators."""
     while state.get("running", True):
         try:
+            camera_data = sensors["camera"].analyse()
             reading = {
                 "temperature": sensors["dht22"].read_temperature(),
                 "humidity":    sensors["dht22"].read_humidity(),
@@ -55,7 +55,8 @@ def sensor_loop(
                 "air_quality": sensors["air_quality"].read_ppm(),
                 "ldr":         sensors["ldr"].read_lux(),
                 "distance":    sensors["ultrasonic"].read_distance(),
-                "occupancy":   sensors["camera"].detect_occupancy(),
+                "posture":     camera_data["posture"],
+                "flow_score":  camera_data["flow_score"],
             }
 
             features   = feature_extractor.extract(reading)

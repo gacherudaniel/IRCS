@@ -84,6 +84,10 @@ SAFETY_CO2_MAX_PPM       = 1500   # ppm – immediate ventilation + alert
 SAFETY_TEMP_DROP_RATE    = 2.0    # °C/min – rapid drop triggers override
 SAFETY_CONFIDENCE_FLOOR  = 0.70   # predict_proba below this → fallback to CV
 
+# ── Sensor thresholds ────────────────────────────────────────────────────────
+CO2_HIGH_THRESHOLD = 1000   # ppm – air quality alert threshold (MQ-135)
+LDR_DARK_THRESHOLD = 10.0   # lux – below this is considered dark
+
 # ── Machine-learning ─────────────────────────────────────────────────────────
 MODEL_PATH  = os.path.join(os.path.dirname(__file__), "ml", "model.pkl")
 SCALER_PATH = os.path.join(os.path.dirname(__file__), "ml", "scaler.pkl")
