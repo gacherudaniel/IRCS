@@ -21,13 +21,11 @@ CREATE TABLE IF NOT EXISTS sensor_log (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp    TEXT    NOT NULL,
     temperature  REAL,
-    humidity     REAL,
     pressure     REAL,
     altitude     REAL,
     air_quality  INTEGER,
-    ldr          INTEGER,
-    distance     REAL,
-    occupancy    INTEGER,
+    ldr          REAL,
+    flow_score   REAL,
     label        TEXT,
     explanation  TEXT
 );
@@ -35,11 +33,11 @@ CREATE TABLE IF NOT EXISTS sensor_log (
 
 _INSERT_SQL = """
 INSERT INTO sensor_log
-    (timestamp, temperature, humidity, pressure, altitude,
-     air_quality, ldr, distance, occupancy, label, explanation)
+    (timestamp, temperature, pressure, altitude,
+     air_quality, ldr, flow_score, label, explanation)
 VALUES
-    (:timestamp, :temperature, :humidity, :pressure, :altitude,
-     :air_quality, :ldr, :distance, :occupancy, :label, :explanation);
+    (:timestamp, :temperature, :pressure, :altitude,
+     :air_quality, :ldr, :flow_score, :label, :explanation);
 """
 
 
@@ -63,13 +61,11 @@ class DatabaseLogger:
         row: dict[str, Any] = {
             "timestamp":   datetime.now(timezone.utc).isoformat(),
             "temperature": reading.get("temperature"),
-            "humidity":    reading.get("humidity"),
             "pressure":    reading.get("pressure"),
             "altitude":    reading.get("altitude"),
             "air_quality": reading.get("air_quality"),
             "ldr":         reading.get("ldr"),
-            "distance":    reading.get("distance"),
-            "occupancy":   int(bool(reading.get("occupancy", False))),
+            "flow_score":  reading.get("flow_score"),
             "label":       label,
             "explanation": explanation,
         }

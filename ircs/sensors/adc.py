@@ -15,10 +15,9 @@ try:
     import board
     import busio
     import adafruit_ads1x15.ads1115 as ADS
-    from adafruit_ads1x15.ads1x15 import P0, P1, P2, P3
     from adafruit_ads1x15.analog_in import AnalogIn
     _ADS_AVAILABLE = True
-    _CHANNELS = (P0, P1, P2, P3)
+    _CHANNELS = (0, 1, 2, 3)
 except ImportError:
     _ADS_AVAILABLE = False
     _CHANNELS = (0, 1, 2, 3)

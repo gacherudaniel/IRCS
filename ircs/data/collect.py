@@ -14,10 +14,9 @@ Run a separate session for each context state, e.g.:
 
 Valid labels: ROOM_EMPTY, ACTIVE_AWAKE, RESTING, SLEEPING
 
-Each row written contains all 14 model features plus the timestamp and label.
-The rolling-window features (ultrasonic_var, lux_rate) stabilise after the
-first 30 seconds, so the first few rows may be less representative — that is
-normal and handled by the preprocessor.
+Each row written contains all 10 model features plus the timestamp and label.
+The rolling-window feature (lux_rate) stabilises after the first 30 seconds,
+so the first few rows may be less representative.
 
 Recommended collection protocol
 ---------------------------------
@@ -41,15 +40,13 @@ from datetime import datetime
 # Allow running from the ircs/ root directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from sensors.ultrasonic    import UltrasonicSensor
-from sensors.dht22         import DHT11Sensor
 from sensors.bmp280_sensor import BMP280Sensor
 from sensors.adc           import ADCSensor
 from sensors.air_quality   import AirQualitySensor
 from sensors.ldr           import LDRSensor
 from sensors.camera        import CameraSensor
 from ml.feature_extractor  import FeatureExtractor, FEATURE_NAMES
-from config                import SENSOR_POLL_INTERVAL, PRESENCE_DISTANCE_CM
+from config                import SENSOR_POLL_INTERVAL
 
 VALID_LABELS = {"ROOM_EMPTY", "ACTIVE_AWAKE", "RESTING", "SLEEPING"}
 
@@ -66,8 +63,6 @@ def _handle_sigint(sig, frame):
 
 def _init_sensors():
     return {
-        "ultrasonic":  UltrasonicSensor(),
-        "dht11":       DHT11Sensor(),
         "bmp280":      BMP280Sensor(),
         "adc":         ADCSensor(),
         "air_quality": AirQualitySensor(),
@@ -76,27 +71,19 @@ def _init_sensors():
     }
 
 
+_last_humidity: float = float("nan")
+
+
 def _read_sensors(sensors: dict) -> dict:
     """Read all sensors and return a raw reading dict."""
-    distance = sensors["ultrasonic"].read_distance()
-
-    # Only run camera pipeline when someone is present
-    if distance <= PRESENCE_DISTANCE_CM:
-        cv_data = sensors["camera"].analyse()
-        posture    = cv_data.get("posture",    -1)
-        flow_score = cv_data.get("flow_score",  0.0)
-    else:
-        posture    = -1
-        flow_score = 0.0
+    cv_data = sensors["camera"].analyse()
+    flow_score = cv_data.get("flow_score", 0.0)
 
     return {
-        "temperature": sensors["dht11"].read_temperature(),
-        "humidity":    sensors["dht11"].read_humidity(),
+        "temperature": sensors["bmp280"].read_temperature(),
         "pressure":    sensors["bmp280"].read_pressure(),
         "co2_ppm":     sensors["air_quality"].read_ppm(),
         "lux":         sensors["ldr"].read_lux(),
-        "distance":    distance,
-        "posture":     posture,
         "flow_score":  flow_score,
     }
 
@@ -149,8 +136,6 @@ def collect(label: str, duration: int, out_path: str) -> None:
                         f"T={reading['temperature']:.1f}°C  "
                         f"CO2={reading['co2_ppm']}ppm  "
                         f"lux={reading['lux']:.0f}  "
-                        f"dist={reading['distance']:.0f}cm  "
-                        f"posture={reading['posture']}  "
                         f"flow={reading['flow_score']:.2f}",
                         end="\r",
                     )

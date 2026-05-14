@@ -13,8 +13,6 @@ from config import (
     DASHBOARD_PORT,
     DASHBOARD_DEBUG,
 )
-from sensors.ultrasonic   import UltrasonicSensor
-from sensors.dht22        import DHT11Sensor
 from sensors.bmp280_sensor import BMP280Sensor
 from sensors.adc          import ADCSensor
 from sensors.air_quality  import AirQualitySensor
@@ -48,19 +46,16 @@ def sensor_loop(
         try:
             camera_data = sensors["camera"].analyse()
             reading = {
-                "temperature": sensors["dht22"].read_temperature(),
-                "humidity":    sensors["dht22"].read_humidity(),
+                "temperature": sensors["bmp280"].read_temperature(),
                 "pressure":    sensors["bmp280"].read_pressure(),
                 "altitude":    sensors["bmp280"].read_altitude(),
                 "air_quality": sensors["air_quality"].read_ppm(),
                 "ldr":         sensors["ldr"].read_lux(),
-                "distance":    sensors["ultrasonic"].read_distance(),
-                "posture":     camera_data["posture"],
                 "flow_score":  camera_data["flow_score"],
             }
 
             features   = feature_extractor.extract(reading)
-            label_id   = classifier.predict(features)
+            label_id, _conf = classifier.predict(features)
             label_name = classifier.label_name(label_id)
 
             actuator.apply(reading, label_name)
@@ -74,9 +69,9 @@ def sensor_loop(
                 "explanation": explanation,
             }
 
-            logger.info("State=%s | temp=%.1f°C | hum=%.1f%% | AQ=%d",
+            logger.info("State=%s | temp=%.1f°C | AQ=%d ppm | lux=%.0f",
                         label_name, reading["temperature"],
-                        reading["humidity"], reading["air_quality"])
+                        reading["air_quality"], reading["ldr"])
 
         except Exception as exc:
             logger.error("Sensor loop error: %s", exc)
@@ -89,8 +84,7 @@ def main() -> None:
 
     # ── Initialise sensors ────────────────────────────────────────────────────
     sensors = {
-        "ultrasonic":  UltrasonicSensor(),
-        "dht22":       DHT11Sensor(),
+
         "bmp280":      BMP280Sensor(),
         "adc":         ADCSensor(),
         "air_quality": AirQualitySensor(),

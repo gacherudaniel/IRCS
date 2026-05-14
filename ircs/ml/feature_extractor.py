@@ -1,22 +1,18 @@
 """
-Feature extractor – builds the 14-feature input vector for the IRCS
+Feature extractor – builds the 10-feature input vector for the IRCS
 Random Forest classifier from a 30-second rolling window of sensor readings.
 
 Feature vector (in order):
-  0  temperature        – DHT11 °C
-  1  humidity           – DHT11 % RH
-  2  pressure           – BMP280 hPa
-  3  co2_ppm            – MQ-135 ppm equivalent
-  4  lux                – LDR lux
-  5  distance           – HC-SR04 cm
-  6  posture            – MediaPipe pose: 0=UPRIGHT, 1=RECLINED, 2=HORIZONTAL, -1=unknown
-  7  flow_score         – Farneback optical flow magnitude (0.0–1.0)
-  8  ultrasonic_var     – variance of distance readings over rolling window (stillness proxy)
-  9  lux_rate           – lux rate-of-change over rolling window (lux/s)
- 10  hour_sin           – sin encoding of hour-of-day (circadian feature)
- 11  hour_cos           – cos encoding of hour-of-day
- 12  dow_sin            – sin encoding of day-of-week
- 13  dow_cos            – cos encoding of day-of-week
+  0  temperature   – BMP280 °C
+  1  pressure      – BMP280 hPa
+  2  co2_ppm       – MQ-135 ppm equivalent
+  3  lux           – LDR lux
+  4  flow_score    – Farneback optical flow magnitude (0.0–1.0)
+  5  lux_rate      – lux rate-of-change over rolling window (lux/s)
+  6  hour_sin      – sin encoding of hour-of-day (circadian feature)
+  7  hour_cos      – cos encoding of hour-of-day
+  8  dow_sin       – sin encoding of day-of-week
+  9  dow_cos       – cos encoding of day-of-week
 """
 
 import logging
@@ -42,9 +38,9 @@ logger = logging.getLogger(__name__)
 _WINDOW_SIZE = max(1, ROLLING_WINDOW_SECONDS // SENSOR_POLL_INTERVAL)
 
 FEATURE_NAMES = [
-    "temperature", "humidity", "pressure", "co2_ppm", "lux",
-    "distance", "posture", "flow_score",
-    "ultrasonic_var", "lux_rate",
+    "temperature", "pressure", "co2_ppm", "lux",
+    "flow_score",
+    "lux_rate",
     "hour_sin", "hour_cos", "dow_sin", "dow_cos",
 ]
 
@@ -93,19 +89,13 @@ class FeatureExtractor:
 
         # ── Instantaneous features ────────────────────────────────────────────
         temp       = float(reading.get("temperature", 22.0))
-        humidity   = float(reading.get("humidity",    50.0))
         pressure   = float(reading.get("pressure",    1013.0))
         co2_ppm    = float(reading.get("co2_ppm",     400.0))
         lux        = float(reading.get("lux",         500.0))
-        distance   = float(reading.get("distance",    400.0))
-        posture    = float(reading.get("posture",     -1))
         flow_score = float(reading.get("flow_score",  0.0))
 
         # ── Window-derived features ───────────────────────────────────────────
-        distances = [r.get("distance", distance) for r in self._window]
-        lux_vals  = [r.get("lux", lux)           for r in self._window]
-
-        ultrasonic_var = float(np.var(distances)) if len(distances) > 1 else 0.0
+        lux_vals  = [r.get("lux", lux) for r in self._window]
 
         if len(lux_vals) >= 2:
             elapsed    = max(len(lux_vals) - 1, 1) * SENSOR_POLL_INTERVAL
@@ -117,9 +107,9 @@ class FeatureExtractor:
         hour_sin, hour_cos, dow_sin, dow_cos = _time_encoding(now)
 
         vector = np.array([
-            temp, humidity, pressure, co2_ppm, lux,
-            distance, posture, flow_score,
-            ultrasonic_var, lux_rate,
+            temp, pressure, co2_ppm, lux,
+            flow_score,
+            lux_rate,
             hour_sin, hour_cos, dow_sin, dow_cos,
         ], dtype=np.float32).reshape(1, -1)
 

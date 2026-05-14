@@ -190,13 +190,7 @@
   <div class="card">
     <div class="card-label">Temperature</div>
     <div class="card-value" id="val-temperature">–<span class="card-unit">°C</span></div>
-    <div class="card-sub">BMP280 / DHT22</div>
-  </div>
-
-  <div class="card">
-    <div class="card-label">Humidity</div>
-    <div class="card-value" id="val-humidity">–<span class="card-unit">% RH</span></div>
-    <div class="card-sub">DHT22</div>
+    <div class="card-sub">BMP280</div>
   </div>
 
   <div class="card">
@@ -213,20 +207,14 @@
 
   <div class="card">
     <div class="card-label">Light Level</div>
-    <div class="card-value" id="val-ldr">–<span class="card-unit">ADC</span></div>
+    <div class="card-value" id="val-ldr">–<span class="card-unit">lux</span></div>
     <div class="card-sub">LDR</div>
   </div>
 
   <div class="card">
-    <div class="card-label">Distance</div>
-    <div class="card-value" id="val-distance">–<span class="card-unit">cm</span></div>
-    <div class="card-sub">HC-SR04</div>
-  </div>
-
-  <div class="card">
-    <div class="card-label">Camera Occupancy</div>
-    <div class="card-value" id="val-occupancy" style="font-size:1.4rem">–</div>
-    <div class="card-sub">OpenCV MOG2</div>
+    <div class="card-label">Motion (Flow Score)</div>
+    <div class="card-value" id="val-flow_score">–</div>
+    <div class="card-sub">Camera optical flow</div>
   </div>
 
   <!-- Actuator status ────────────────────────────────────────────────────── -->
@@ -263,12 +251,10 @@
           <tr>
             <th>Timestamp</th>
             <th>Temp (°C)</th>
-            <th>Hum (%)</th>
-            <th>Pressure</th>
+            <th>Pressure (hPa)</th>
             <th>AQ (ppm)</th>
-            <th>LDR</th>
-            <th>Dist (cm)</th>
-            <th>Occ.</th>
+            <th>Lux</th>
+            <th>Flow</th>
             <th>State</th>
           </tr>
         </thead>
@@ -292,18 +278,14 @@
       // Sensor cards
       document.getElementById("val-temperature").innerHTML =
         fmt(r.temperature) + '<span class="card-unit">°C</span>';
-      document.getElementById("val-humidity").innerHTML =
-        fmt(r.humidity)    + '<span class="card-unit">% RH</span>';
       document.getElementById("val-pressure").innerHTML =
         fmt(r.pressure, 1) + '<span class="card-unit">hPa</span>';
       document.getElementById("val-air_quality").innerHTML =
         fmt(r.air_quality, 0) + '<span class="card-unit">ppm</span>';
       document.getElementById("val-ldr").innerHTML =
-        fmt(r.ldr, 0)      + '<span class="card-unit">ADC</span>';
-      document.getElementById("val-distance").innerHTML =
-        fmt(r.distance)    + '<span class="card-unit">cm</span>';
-      document.getElementById("val-occupancy").textContent =
-        r.occupancy ? "Detected" : "None";
+        fmt(r.ldr, 1)      + '<span class="card-unit">lux</span>';
+      document.getElementById("val-flow_score").textContent =
+        r.flow_score != null ? Number(r.flow_score).toFixed(3) : "–";
 
       // Room state pill
       const state    = data.label || "unknown";
@@ -345,12 +327,10 @@
         tr.innerHTML = `
           <td>${ts}</td>
           <td>${fmt(row.temperature)}</td>
-          <td>${fmt(row.humidity)}</td>
           <td>${fmt(row.pressure, 1)}</td>
           <td>${fmt(row.air_quality, 0)}</td>
-          <td>${fmt(row.ldr, 0)}</td>
-          <td>${fmt(row.distance)}</td>
-          <td>${row.occupancy ? "Yes" : "No"}</td>
+          <td>${fmt(row.ldr, 1)}</td>
+          <td>${row.flow_score != null ? Number(row.flow_score).toFixed(3) : "–"}</td>
           <td>${row.label || "–"}</td>
         `;
         tbody.appendChild(tr);

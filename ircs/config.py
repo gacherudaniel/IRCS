@@ -5,21 +5,15 @@ Context-Aware Environmental Control for Elderly and Infant Care.
 Physical wiring reference (BCM numbering):
   GPIO 2  (SDA1) Pin 3  → ADS1115 SDA, BMP280 SDA, OLED SDA  [I2C Data]
   GPIO 3  (SCL1) Pin 5  → ADS1115 SCL, BMP280 SCL, OLED SCL  [I2C Clock]
-  GPIO 4         Pin 7  → DHT11 OUT                            [Digital IN]
-  GPIO 17        Pin 11 → HC-SR04 TRIG                         [Digital OUT]
   GPIO 18        Pin 12 → MG90S Servo signal (orange)          [PWM]
   GPIO 21        Pin 40 → LED anode (via 330Ω)                 [Digital OUT]
   GPIO 23        Pin 16 → NPN Base (via 1kΩ) → Buzzer          [Digital OUT]
-  GPIO 27        Pin 13 → HC-SR04 ECHO (via voltage divider)   [Digital IN]
 """
 
 import os
 
 # ── Hardware pin assignments (BCM numbering for Raspberry Pi) ─────────────────
-ULTRASONIC_TRIG_PIN = 17       # HC-SR04 TRIG
-ULTRASONIC_ECHO_PIN = 27       # HC-SR04 ECHO (voltage-divider protected)
-
-DHT11_PIN = 4                  # DHT11 data pin
+# (DHT11 and HC-SR04 removed – using BMP280 for temp, camera for presence)
 
 # ── I2C device addresses ──────────────────────────────────────────────────────
 BMP280_I2C_ADDRESS  = 0x76     # 0x77 if SDO pulled high
@@ -54,9 +48,6 @@ SENSOR_POLL_INTERVAL   = 10    # seconds between sensor cycles
 ROLLING_WINDOW_SECONDS = 30    # seconds of history for derived features
 LLM_CALL_INTERVAL      = 300   # seconds between scheduled LLM calls (5 min)
 ACTUATOR_RAMP_SECONDS  = 900   # 15-minute gradual transition between states
-
-# ── Presence detection ────────────────────────────────────────────────────────
-PRESENCE_DISTANCE_CM   = 400   # HC-SR04 returns > this → ROOM_EMPTY standby
 
 # ── Context-state labels ──────────────────────────────────────────────────────
 LABEL_MAP = {

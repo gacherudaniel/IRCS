@@ -28,32 +28,30 @@ from config import MODEL_PATH, LABEL_MAP, SAFETY_CONFIDENCE_FLOOR
 
 logger = logging.getLogger(__name__)
 
-# Posture encoding indices within the 14-feature vector (see feature_extractor.py)
-_IDX_DISTANCE   = 5
-_IDX_POSTURE    = 6
-_IDX_FLOW_SCORE = 7
+# Feature indices within the 10-feature vector (see feature_extractor.py)
+_IDX_LUX        = 3
+_IDX_FLOW_SCORE = 4
+_IDX_CO2        = 2
 
 
 def _cv_fallback(features: np.ndarray) -> int:
     """
-    Rule-based heuristic using posture and optical flow when ML confidence
-    is insufficient.  Uses raw (unscaled) feature indices — called before
-    the scaler is applied, so values may be scaled; only relative magnitudes
-    and sign are used.
+    Rule-based heuristic using lux, flow_score and CO2 when ML confidence
+    is insufficient.
     """
-    distance   = float(features[0, _IDX_DISTANCE])
-    posture    = int(round(float(features[0, _IDX_POSTURE])))
     flow_score = float(features[0, _IDX_FLOW_SCORE])
+    lux        = float(features[0, _IDX_LUX])
+    co2        = float(features[0, _IDX_CO2])
 
-    if distance > 400:              # no one in range
-        return 0  # ROOM_EMPTY
+    if lux < 10 and flow_score < 0.05:
+        return 3  # SLEEPING – dark and still
     if flow_score > 0.25:
         return 1  # ACTIVE_AWAKE – significant motion
-    if posture == 2:                # HORIZONTAL
-        return 3  # SLEEPING
-    if posture == 1:                # RECLINED
-        return 2  # RESTING
-    return 1  # default ACTIVE_AWAKE when upright and still
+    if co2 > 700 and lux < 100:
+        return 2  # RESTING – someone present but still
+    if lux < 5 and co2 < 500:
+        return 0  # ROOM_EMPTY – very dark, low CO2
+    return 2  # default RESTING
 
 
 class RoomClassifier:
@@ -77,7 +75,7 @@ class RoomClassifier:
         """
         Parameters
         ----------
-        features : np.ndarray of shape (1, 14)
+        features : np.ndarray of shape (1, 10)
 
         Returns
         -------

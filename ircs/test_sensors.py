@@ -36,38 +36,22 @@ def _header(title: str) -> None:
     print(f"{'─' * (WIDTH + 20)}")
 
 
-# ── DHT11 (temperature & humidity) ──────────────────────────────────────────
-
-def test_dht11() -> None:
-    _header("DHT11 – Temperature & Humidity")
-    try:
-        from sensors.dht22 import DHT11Sensor
-        sensor = DHT11Sensor()
-        temp = sensor.read_temperature()
-        hum  = sensor.read_humidity()
-        assert isinstance(temp, float), "Temperature not a float"
-        assert isinstance(hum, float),  "Humidity not a float"
-        assert -40 <= temp <= 80,  f"Temperature out of range: {temp}"
-        assert   0 <= hum  <= 100, f"Humidity out of range: {hum}"
-        _row("read_temperature()", PASS, f"{temp:.1f} °C")
-        _row("read_humidity()",    PASS, f"{hum:.1f} %RH")
-    except Exception as exc:
-        _row("DHT11Sensor", FAIL, str(exc))
-        traceback.print_exc()
-
-
-# ── BMP280 (pressure & altitude) ─────────────────────────────────────────────
+# ── BMP280 (temperature, pressure & altitude) ───────────────────────────────
 
 def test_bmp280() -> None:
-    _header("BMP280 – Pressure & Altitude")
+    _header("BMP280 – Temperature, Pressure & Altitude")
     try:
         from sensors.bmp280_sensor import BMP280Sensor
         sensor = BMP280Sensor()
+        temperature = sensor.read_temperature()
         pressure = sensor.read_pressure()
         altitude = sensor.read_altitude()
+        assert isinstance(temperature, float), "Temperature not a float"
         assert isinstance(pressure, float), "Pressure not a float"
         assert isinstance(altitude, float), "Altitude not a float"
+        assert -40 <= temperature <= 85, f"Temperature out of range: {temperature}"
         assert 800 <= pressure <= 1100, f"Pressure out of range: {pressure}"
+        _row("read_temperature()", PASS, f"{temperature:.2f} °C")
         _row("read_pressure()", PASS, f"{pressure:.2f} hPa")
         _row("read_altitude()", PASS, f"{altitude:.1f} m")
     except Exception as exc:
@@ -142,27 +126,6 @@ def test_ldr() -> None:
         traceback.print_exc()
 
 
-# ── HC-SR04 Ultrasonic ───────────────────────────────────────────────────────
-
-def test_ultrasonic() -> None:
-    _header("HC-SR04 – Ultrasonic Distance")
-    try:
-        from sensors.ultrasonic import UltrasonicSensor
-        sensor = UltrasonicSensor()
-        dist = sensor.read_distance()
-        assert isinstance(dist, float), "distance not float"
-        assert dist == -1.0 or 2 <= dist <= 700, \
-            f"Distance out of expected range: {dist}"
-        status = WARN if dist == -1.0 else PASS
-        _row("read_distance()", status,
-             f"{dist:.1f} cm" if dist != -1.0 else "timeout / no echo")
-        if hasattr(sensor, "cleanup"):
-            sensor.cleanup()
-    except Exception as exc:
-        _row("UltrasonicSensor", FAIL, str(exc))
-        traceback.print_exc()
-
-
 # ── Camera ───────────────────────────────────────────────────────────────────
 
 def test_camera() -> None:
@@ -210,12 +173,10 @@ if __name__ == "__main__":
     print("\nIRCS Sensor Test Suite")
     print(f"{'═' * (WIDTH + 20)}")
 
-    test_dht11()
     test_bmp280()
     test_adc()
     test_air_quality()
     test_ldr()
-    test_ultrasonic()
     test_camera()
 
     print_summary()

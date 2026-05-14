@@ -45,8 +45,8 @@ class DHT11Sensor:
                 hum  = self._device.humidity
                 if temp is not None and hum is not None:
                     return float(temp), float(hum)
-            except RuntimeError:
-                # DHT22 occasionally returns a bad read; retry
+            except Exception:
+                # DHT sensors occasionally return bad reads; retry
                 pass
             time.sleep(_RETRY_DELAY)
         raise RuntimeError("DHT11 failed to return a valid reading after retries.")
